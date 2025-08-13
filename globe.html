@@ -56,7 +56,7 @@
         // Позиционируем камеру
         camera.position.z = 5;
 
-        // Добавление света, чтобы глобус был виден и имел объём
+        // Добавление света для освещения сцены
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
         scene.add(ambientLight);
 
@@ -68,17 +68,19 @@
         const geometry = new THREE.SphereGeometry(2, 64, 64);
         let globe;
 
-        // Загрузка текстуры карты Земли
-        const textureLoader = new THREE.TextureLoader();
+        // URL-адрес текстуры карты Земли
         const textureUrl = 'https://cdn.glitch.com/a42b1028-a42e-4b40-9759-99450c2b2a61%2Fearth-texture.jpg?v=1592323719053';
+        const textureLoader = new THREE.TextureLoader();
 
         // Отображаем индикатор загрузки
         const loadingText = document.getElementById('loading-text');
 
-        textureLoader.load(textureUrl,
-            // Выполняется после успешной загрузки
-            function(texture) {
-                loadingText.style.display = 'none'; // Скрываем текст загрузки
+        // Загружаем текстуру
+        textureLoader.load(
+            textureUrl,
+            // Функция, вызываемая после успешной загрузки
+            (texture) => {
+                loadingText.style.display = 'none';
                 
                 // Создаем материал с текстурой
                 const material = new THREE.MeshPhongMaterial({ map: texture });
@@ -88,14 +90,14 @@
                 // Запускаем анимационный цикл
                 animate();
             },
-            // Выполняется во время загрузки (опционально)
+            // Функция-прогресс (необязательно)
             undefined,
-            // Выполняется в случае ошибки загрузки
-            function(err) {
-                console.error('Ошибка при загрузке текстуры.', err);
+            // Функция, вызываемая при ошибке загрузки
+            (err) => {
+                console.error('Ошибка при загрузке текстуры:', err);
                 loadingText.style.display = 'none';
                 
-                // В случае ошибки создаем одноцветный глобус как запасной вариант
+                // Создаем одноцветный глобус как запасной вариант
                 const fallbackMaterial = new THREE.MeshPhongMaterial({ color: 0x3366ff });
                 globe = new THREE.Mesh(geometry, fallbackMaterial);
                 scene.add(globe);
@@ -107,12 +109,9 @@
 
         // Переменные для отслеживания вращения с помощью мыши
         let isDragging = false;
-        let previousMousePosition = {
-            x: 0,
-            y: 0
-        };
+        let previousMousePosition = { x: 0, y: 0 };
 
-        // Обработчики событий для вращения глобуса с помощью мыши
+        // Обработчики событий для вращения глобуса
         document.addEventListener('mousedown', (e) => {
             isDragging = true;
             previousMousePosition.x = e.clientX;
@@ -141,17 +140,15 @@
             };
         });
 
-        // Функция анимации
+        // Основной цикл анимации
         function animate() {
-            // Запрашиваем следующий кадр анимации
             requestAnimationFrame(animate);
 
-            // Проверяем, существует ли глобус, прежде чем его вращать
+            // Автоматическое вращение, когда глобус не перетаскивают
             if (globe && !isDragging) {
                 globe.rotation.y += 0.002;
             }
 
-            // Рендеринг сцены
             renderer.render(scene, camera);
         }
 
