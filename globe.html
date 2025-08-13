@@ -4,23 +4,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Вращающийся 3D-глобус</title>
+    <title>Вращающийся 3D-глобус с текстурой</title>
     <style>
         body {
             margin: 0;
             padding: 0;
             overflow: hidden;
             background-color: #1a1a1a;
-            font-family: sans-serif;
+            font-family: 'Inter', sans-serif;
             color: white;
             display: flex;
             justify-content: center;
             align-items: center;
             flex-direction: column;
             height: 100vh;
+            gap: 20px;
         }
         h1 {
-            margin-bottom: 20px;
+            margin: 0;
+            font-weight: 300;
         }
         canvas {
             display: block;
@@ -29,10 +31,15 @@
             max-width: 90vw;
             max-height: 80vh;
         }
+        #loading-text {
+            font-size: 1.2rem;
+            color: #888;
+        }
     </style>
 </head>
 <body>
-    <h1>Простой 3D-глобус</h1>
+    <h1>Вращающийся 3D-глобус</h1>
+    <div id="loading-text">Загрузка глобуса...</div>
     <!-- Загрузка библиотеки three.js с CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
@@ -46,15 +53,10 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        // Создание геометрии и материала для глобуса
-        // Геометрия: сфера с радиусом 2 и 64 сегментами (для плавности)
-        const geometry = new THREE.SphereGeometry(2, 64, 64);
-        // Материал: mesh Lambert, который реагирует на свет
-        const material = new THREE.MeshLambertMaterial({ color: 0x3366ff });
-        const globe = new THREE.Mesh(geometry, material);
-        scene.add(globe);
+        // Позиционируем камеру
+        camera.position.z = 5;
 
-        // Добавление света, чтобы глобус был виден
+        // Добавление света, чтобы глобус был виден и имел объём
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
         scene.add(ambientLight);
 
@@ -62,8 +64,46 @@
         directionalLight.position.set(5, 5, 5);
         scene.add(directionalLight);
 
-        // Установка начальной позиции камеры
-        camera.position.z = 5;
+        // Создаем геометрию сферы
+        const geometry = new THREE.SphereGeometry(2, 64, 64);
+        let globe;
+
+        // Загрузка текстуры карты Земли
+        const textureLoader = new THREE.TextureLoader();
+        const textureUrl = 'https://cdn.glitch.com/a42b1028-a42e-4b40-9759-99450c2b2a61%2Fearth-texture.jpg?v=1592323719053';
+
+        // Отображаем индикатор загрузки
+        const loadingText = document.getElementById('loading-text');
+
+        textureLoader.load(textureUrl,
+            // Выполняется после успешной загрузки
+            function(texture) {
+                loadingText.style.display = 'none'; // Скрываем текст загрузки
+                
+                // Создаем материал с текстурой
+                const material = new THREE.MeshPhongMaterial({ map: texture });
+                globe = new THREE.Mesh(geometry, material);
+                scene.add(globe);
+                
+                // Запускаем анимационный цикл
+                animate();
+            },
+            // Выполняется во время загрузки (опционально)
+            undefined,
+            // Выполняется в случае ошибки загрузки
+            function(err) {
+                console.error('Ошибка при загрузке текстуры.', err);
+                loadingText.style.display = 'none';
+                
+                // В случае ошибки создаем одноцветный глобус как запасной вариант
+                const fallbackMaterial = new THREE.MeshPhongMaterial({ color: 0x3366ff });
+                globe = new THREE.Mesh(geometry, fallbackMaterial);
+                scene.add(globe);
+                
+                // Запускаем анимационный цикл
+                animate();
+            }
+        );
 
         // Переменные для отслеживания вращения с помощью мыши
         let isDragging = false;
@@ -84,7 +124,7 @@
         });
 
         document.addEventListener('mousemove', (e) => {
-            if (!isDragging) return;
+            if (!isDragging || !globe) return;
             
             const deltaMove = {
                 x: e.clientX - previousMousePosition.x,
@@ -106,8 +146,10 @@
             // Запрашиваем следующий кадр анимации
             requestAnimationFrame(animate);
 
-            // Автоматическое вращение глобуса (можно закомментировать, если нужно только вращение мышью)
-            globe.rotation.y += 0.005;
+            // Проверяем, существует ли глобус, прежде чем его вращать
+            if (globe && !isDragging) {
+                globe.rotation.y += 0.002;
+            }
 
             // Рендеринг сцены
             renderer.render(scene, camera);
@@ -119,9 +161,6 @@
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
-        
-        // Запускаем анимационный цикл
-        animate();
     </script>
 </body>
 </html>
