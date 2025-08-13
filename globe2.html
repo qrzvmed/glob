@@ -1,259 +1,72 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>globe2 — 3D глобус с границами стран</title>
-  <style>
-    html,body { height:100%; margin:0; background:#0b0b0b; color:#fff; }
-    #info { position:absolute; left:12px; top:12px; z-index:30; font-family:Arial,sans-serif; font-size:13px; background:rgba(0,0,0,0.4); padding:8px 10px; border-radius:6px; }
-    #wrap { width:100%; height:100vh; display:block; }
-    .zoom-ui { position:absolute; right:12px; top:12px; z-index:30; display:flex; flex-direction:column; gap:8px; }
-    .zoom-ui button { width:44px; height:44px; border-radius:8px; border:none; background:rgba(255,255,255,0.06); color:white; font-size:22px; cursor:pointer; }
-    pre#error { position:absolute; left:12px; bottom:12px; right:12px; z-index:30; display:none; background:rgba(255,0,0,0.06); color:#f88; padding:8px; border-radius:6px; font-family:monospace; font-size:12px; max-height:180px; overflow:auto; }
-  </style>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Вращающийся 3D-глобус со странами</title>
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; background-color: #1a1a1a; }
+        #canvas-wrap { width: 100vw; height: 100vh; display:flex; justify-content:center; align-items:center; }
+        canvas { display: block; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); }
+    </style>
 </head>
 <body>
-  <div id="info">Вращайте мышью, колесико — масштаб. Клик по границе показывает название страны (если GeoJSON имеет имя).</div>
-  <div class="zoom-ui">
-    <button id="zin" title="Увеличить">＋</button>
-    <button id="zout" title="Уменьшить">−</button>
-  </div>
-  <div id="wrap"></div>
-  <pre id="error"></pre>
+<div id="canvas-wrap"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.getElementById('canvas-wrap').appendChild(renderer.domElement);
 
-  <!-- Модульный импорт three.js и OrbitControls (ESM) -->
-  <script type="module">
-  import * as THREE from 'https://unpkg.com/three@0.150.1/build/three.module.js';
-  import { OrbitControls } from 'https://unpkg.com/three@0.150.1/examples/jsm/controls/OrbitControls.js';
+// Контролы для вращения и зума
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.enableZoom = true;
 
-  const wrap = document.getElementById('wrap');
-  const errorBox = document.getElementById('error');
-  function showError(msg){
-    errorBox.style.display = 'block';
-    errorBox.textContent += msg + "\\n";
-    console.error(msg);
-  }
+camera.position.z = 5;
 
-  // ====== Настройки ======
-  // Здесь можно указать текстуру с политическими границами (экваториальная проекция)
-  // По умолчанию — хорошая базовая текстура. Замените URL на вашу политическую карту (equirectangular JPG/PNG).
-  let textureUrl = 'https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg';
+// Освещение
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+scene.add(ambientLight);
+const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
+directionalLight.position.set(5,5,5);
+scene.add(directionalLight);
 
-  // Примеры источников, где можно получить политическую карту:
-  // - Natural Earth (векторные данные; можно экспортировать растр с границами): https://www.naturalearthdata.com/
-  // - Wikimedia Commons: поиск "World political map equirectangular"
-  //
-  // Если у вас есть свой файл (index.html в репозитории), можно указать относительный путь:
-  // textureUrl = './earth_political_4k.jpg';
+// Сфера-глобус
+const geometry = new THREE.SphereGeometry(2, 64, 64);
+let globe;
+const loader = new THREE.TextureLoader();
 
-  // GeoJSON с границами (мы используем публичный файл с границами)
-  const geojsonUrl = 'https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson';
-
-  // Параметры камеры/ограничения зума
-  const CAMERA_MIN_Z = 2.2;
-  const CAMERA_MAX_Z = 18;
-
-  // ====== Инициализация сцены ======
-  const scene = new THREE.Scene();
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setPixelRatio(window.devicePixelRatio);
-  wrap.appendChild(renderer.domElement);
-
-  // камера
-  const camera = new THREE.PerspectiveCamera(50, wrap.clientWidth / wrap.clientHeight, 0.1, 2000);
-  camera.position.set(0, 0, 5.2);
-
-  // освещение
-  scene.add(new THREE.AmbientLight(0xddddff, 0.8));
-  const dir = new THREE.DirectionalLight(0xffffff, 0.6);
-  dir.position.set(5, 4, 5);
-  scene.add(dir);
-
-  // OrbitControls для удобного вращения и зума
-  const controls = new OrbitControls(camera, renderer.domElement);
-  controls.enablePan = false;
-  controls.enableZoom = true;
-  controls.minDistance = CAMERA_MIN_Z;
-  controls.maxDistance = CAMERA_MAX_Z;
-
-  // Подгонка размера
-  function onResize(){
-    renderer.setSize(wrap.clientWidth, wrap.clientHeight);
-    camera.aspect = wrap.clientWidth / wrap.clientHeight;
-    camera.updateProjectionMatrix();
-  }
-  window.addEventListener('resize', onResize);
-  onResize();
-
-  // Создаём сферу (глобус)
-  const R = 2.0;
-  const globeGeo = new THREE.SphereGeometry(R, 96, 96);
-  let globeMesh = null;
-
-  // Загружаем текстуру (async)
-  const loader = new THREE.TextureLoader();
-  loader.crossOrigin = ''; // чтобы избежать CORS проблем
-  loader.load(
-    textureUrl,
-    tex => {
-      tex.encoding = THREE.sRGBEncoding;
-      const mat = new THREE.MeshStandardMaterial({ map: tex, metalness:0.0, roughness:1.0 });
-      globeMesh = new THREE.Mesh(globeGeo, mat);
-      scene.add(globeMesh);
+// Текстура со всеми странами
+loader.load(
+    'https://raw.githubusercontent.com/nahamsec/3D-Earth/master/earthmap1k.jpg', // карта стран
+    function(texture){
+        const material = new THREE.MeshPhongMaterial({ map: texture });
+        globe = new THREE.Mesh(geometry, material);
+        scene.add(globe);
+        animate();
     },
     undefined,
-    err => {
-      showError('Ошибка загрузки текстуры: ' + (err && err.message ? err.message : err));
-      // fallback: простая материал-краска
-      const mat = new THREE.MeshStandardMaterial({ color: 0x12345a });
-      globeMesh = new THREE.Mesh(globeGeo, mat);
-      scene.add(globeMesh);
-    }
-  );
+    function(err){ console.error('Ошибка загрузки текстуры:', err); }
+);
 
-  // ====== Добавляем границы стран из GeoJSON ======
-  // Мы рисуем линии (LineLoop) немного выше поверхности (R + offset)
-  const bordersGroup = new THREE.Group();
-  scene.add(bordersGroup);
-
-  fetch(geojsonUrl).then(r => {
-    if(!r.ok) throw new Error('HTTP ' + r.status);
-    return r.json();
-  }).then(data => {
-    if(!data || !data.features) throw new Error('GeoJSON invalid');
-
-    const lineMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 1, transparent: true, opacity: 0.9 });
-    const hitObjects = [];
-
-    data.features.forEach(feature => {
-      const geom = feature.geometry;
-      if(!geom) return;
-      const props = feature.properties || {};
-      const countryName = props.name || props.ADMIN || props.NAME || 'Unknown';
-
-      // Support Polygon and MultiPolygon
-      const polygons = (geom.type === 'Polygon') ? [geom.coordinates] :
-                       (geom.type === 'MultiPolygon') ? geom.coordinates : [];
-
-      polygons.forEach(polygon => {
-        polygon.forEach(ring => {
-          const positions = [];
-          for(let i=0;i<ring.length;i++){
-            const [lon, lat] = ring[i];
-            const v = latLonToVector3(lat, lon, R + 0.006); // небольшой оффсет
-            positions.push(v.x, v.y, v.z);
-          }
-          const buffer = new THREE.BufferGeometry();
-          buffer.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
-          const line = new THREE.LineLoop(buffer, lineMaterial.clone());
-          line.userData = { countryName };
-          bordersGroup.add(line);
-          hitObjects.push(line);
-        });
-      });
-    });
-
-    // Raycaster для клика по границам
-    const raycaster = new THREE.Raycaster();
-    const mouse = new THREE.Vector2();
-
-    function onClick(e){
-      const rect = renderer.domElement.getBoundingClientRect();
-      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-      raycaster.setFromCamera(mouse, camera);
-      const intersects = raycaster.intersectObjects(hitObjects, true);
-      if(intersects.length){
-        const obj = intersects[0].object;
-        const name = obj.userData && obj.userData.countryName ? obj.userData.countryName : 'Unknown';
-        alert('Страна: ' + name);
-      }
-    }
-    renderer.domElement.addEventListener('click', onClick, false);
-
-  }).catch(err => {
-    showError('Не удалось загрузить GeoJSON: ' + (err && err.message ? err.message : err));
-  });
-
-  // Преобразование lat/lon -> вектор (с учётом ориентации)
-  function latLonToVector3(lat, lon, radius){
-    const phi = (90 - lat) * (Math.PI / 180);
-    const theta = (lon + 180) * (Math.PI / 180);
-    const x = - radius * Math.sin(phi) * Math.cos(theta);
-    const z = radius * Math.sin(phi) * Math.sin(theta);
-    const y = radius * Math.cos(phi);
-    return new THREE.Vector3(x,y,z);
-  }
-
-  // ====== Зум управление: колесо + кнопки ======
-  function applyZoom(delta){ // delta from wheel (positive => zoom out)
-    const sensitivity = 0.01;
-    camera.position.z += delta * sensitivity;
-    camera.position.z = Math.max(CAMERA_MIN_Z, Math.min(CAMERA_MAX_Z, camera.position.z));
-  }
-
-  renderer.domElement.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    applyZoom(e.deltaY);
-  }, { passive: false });
-
-  document.getElementById('zin').addEventListener('click', ()=> applyZoom(-120));
-  document.getElementById('zout').addEventListener('click', ()=> applyZoom(120));
-
-  // touch pinch (простейшая реализация)
-  let touchStartDist = null;
-  let touchStartZ = null;
-  renderer.domElement.addEventListener('touchstart', (e)=>{
-    if(e.touches.length === 2){
-      touchStartDist = distanceTouches(e.touches);
-      touchStartZ = camera.position.z;
-    }
-  }, { passive: true });
-  renderer.domElement.addEventListener('touchmove', (e)=>{
-    if(e.touches.length === 2 && touchStartDist && touchStartZ !== null){
-      const d = distanceTouches(e.touches);
-      const scale = d / touchStartDist;
-      const newZ = touchStartZ / scale;
-      camera.position.z = Math.max(CAMERA_MIN_Z, Math.min(CAMERA_MAX_Z, newZ));
-    }
-  }, { passive: true });
-  renderer.domElement.addEventListener('touchend', ()=> { touchStartDist = null; touchStartZ = null; }, { passive: true });
-
-  function distanceTouches(touches){
-    const dx = touches[0].clientX - touches[1].clientX;
-    const dy = touches[0].clientY - touches[1].clientY;
-    return Math.sqrt(dx*dx + dy*dy);
-  }
-
-  // ====== Анимация ======
-  const AUTO_ROTATE_SPEED = 0.002;
-  let isPointerDown = false;
-  renderer.domElement.addEventListener('pointerdown', ()=> isPointerDown = true, { passive: true });
-  window.addEventListener('pointerup', ()=> isPointerDown = false, { passive: true });
-
-  function animate(){
+function animate(){
     requestAnimationFrame(animate);
-    if(globeMesh && !isPointerDown) globeMesh.rotation.y += AUTO_ROTATE_SPEED;
+    if(globe) globe.rotation.y += 0.001; // медленное вращение
+    controls.update();
     renderer.render(scene, camera);
-  }
-  animate();
+}
 
-  // Установим корректный размер при старте
-  onResize();
-
-  // ====== Полезные подсказки ======
-  // Если вы хотите использовать текстуру с политическими границами:
-  // 1) Найдите equirectangular PNG/JPG с политическими границами (например, на Wikimedia Commons или создайте из Natural Earth).
-  // 2) Положите файл в корень репозитория и замените textureUrl на './earth_political_4k.jpg'
-  // 3) Перезалейте — и границы будут сразу видны на сетчатой карте + у нас есть линии из GeoJSON на случай, если текстура не содержит имен.
-  //
-  // Примеры источников:
-  // - https://www.naturalearthdata.com/ (векторные данные admin-0 countries — можно экспортировать в растровую карту)
-  // - Wikimedia Commons — ищите "political map equirectangular" или "world map countries equirectangular"
-  //
-  // Внимание: некоторые внешние хосты могут блокировать прямой доступ (CORS) — в этом случае положите файл рядом с html и используйте относительный путь.
-
-  </script>
+// Адаптивность
+window.addEventListener('resize', ()=>{
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
 </body>
 </html>
