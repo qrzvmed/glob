@@ -1,60 +1,158 @@
 
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="ru">
 <head>
-<meta charset="UTF-8" />
-<title>3D Globe</title>
-<style>
-  html, body {
-    margin: 0;
-    height: 100%;
-    overflow: hidden;
-    background: black;
-  }
-  #globeViz {
-    width: 100%;
-    height: 100%;
-  }
-</style>
-<!-- Подключаем Three.js и Globe.gl с CDN -->
-<script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
-<script src="https://unpkg.com/globe.gl@4.6.8/dist/globe.gl.min.js"></script>
+  <meta charset="utf-8">
+  <title>Interactive 3D Globe</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    html,body { height:100%; margin:0; background:#000; color:#fff; font-family:Arial, sans-serif; }
+    #globeViz { width:100%; height:100vh; display:block; }
+    #msg { position: absolute; top:10px; left:10px; z-index:999; background:rgba(0,0,0,0.5); padding:8px 12px; border-radius:6px; }
+    #errBox { position: absolute; bottom:10px; left:10px; right:10px; max-height:200px; overflow:auto; background:rgba(255,0,0,0.1); color:#fff; padding:8px; font-size:13px; display:none; border-radius:6px;}
+  </style>
+  <!-- Three.js -->
+  <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
+  <!-- OrbitControls (examples) -->
+  <script src="https://unpkg.com/three@0.152.2/examples/js/controls/OrbitControls.js"></script>
+  <!-- Globe.gl -->
+  <script src="https://unpkg.com/globe.gl@4.6.8/dist/globe.gl.min.js"></script>
 </head>
 <body>
-<div id="globeViz"></div>
+  <div id="msg">Загрузка глобуса… Если видите пустой экран — откройте консоль (F12) и посмотрите ошибки.</div>
+  <div id="globeViz"></div>
+  <div id="errBox"></div>
 
 <script>
-// Создаём глобус
-const globe = Globe()
-  .globeImageUrl('//unpkg.com/three-globe/example/img/earth-dark.jpg')
-  .bumpImageUrl('//unpkg.com/three-globe/example/img/earth-topology.png')
-  .backgroundImageUrl('//unpkg.com/three-globe/example/img/night-sky.png')
-  .polygonsData([])
-  .polygonCapColor(() => 'rgba(200, 0, 0, 0.4)')
-  .polygonSideColor(() => 'rgba(255, 255, 255, 0.15)')
-  .polygonStrokeColor(() => '#111')
-  .polygonAltitude(() => 0.01)
-  .onPolygonHover(hoverD => globe
-    .polygonCapColor(d => d === hoverD ? 'rgba(0,255,0,0.6)' : 'rgba(200,0,0,0.4)'));
+(function(){
+  const errBox = document.getElementById('errBox');
+  function showError(msg){
+    errBox.style.display = 'block';
+    const p = document.createElement('div');
+    p.textContent = msg;
+    errBox.appendChild(p);
+    console.error(msg);
+  }
 
-const globeDiv = document.getElementById('globeViz');
-globe(globeDiv);
-
-// Загружаем границы стран
-fetch('https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson')
-  .then(res => res.json())
-  .then(countries => {
-    globe
-      .polygonsData(countries.features)
-      .polygonLabel(({ properties: d }) => `
-        <b>${d.name}</b>
-      `);
+  window.addEventListener('error', function(e){
+    showError('Ошибка JS: ' + (e && e.message ? e.message : JSON.stringify(e)));
   });
 
-// Настройки камеры
-globe.controls().enableZoom = true;
-globe.controls().autoRotate = true;
-globe.controls().autoRotateSpeed = 0.8;
+  // Проверяем наличия зависимостей
+  if (typeof THREE === 'undefined') {
+    showError('Three.js не загружен.');
+    return;
+  }
+  if (typeof Globe === 'undefined' && typeof ThreeGlobe === 'undefined') {
+    showError('Three-Globe (Globe.gl) не загружен.');
+    return;
+  }
+
+  const container = document.getElementById('globeViz');
+
+  // Создаём объект Globe (Globe() или ThreeGlobe() в зависимости от версии)
+  // Globe.gl обычно экспортирует глобальную функцию Globe()
+  let globe;
+  try {
+    globe = (typeof Globe !== 'undefined') ? Globe() : (typeof ThreeGlobe !== 'undefined' ? new ThreeGlobe() : null);
+    if (!globe) throw new Error('Не удалось создать объект Globe.');
+  } catch(err) {
+    showError('Ошибка создания Globe: ' + err.message);
+    return;
+  }
+
+  // Инициализация сцены/камеры внутри Globe.gl — библиотека сама создаёт canvas при вызове globe(container)
+  try {
+    globe(container);
+  } catch(err) {
+    showError('Ошибка при добавлении глобуса в DOM: ' + err.message);
+    return;
+  }
+
+  // Настройки текстур (надёжные CDN-пути)
+  const globeImg = 'https://unpkg.com/three-globe/example/img/earth-dark.jpg';
+  const bumpImg  = 'https://unpkg.com/three-globe/example/img/earth-topology.png';
+  const bgImg    = 'https://unpkg.com/three-globe/example/img/night-sky.png';
+
+  // Применяем текстуры и базовые параметры
+  try {
+    globe
+      .globeImageUrl(globeImg)
+      .bumpImageUrl(bumpImg)
+      .backgroundImageUrl(bgImg)
+      .showAtmosphere(true)
+      .atmosphereColor('lightskyblue')
+      .atmosphereAltitude(0.2)
+      .polygonAltitude(0.01)
+      .polygonCapColor(() => 'rgba(200, 0, 0, 0.35)')
+      .polygonSideColor(() => 'rgba(0, 0, 0, 0.15)')
+      .polygonStrokeColor(() => '#222')
+      .onPolygonHover(d => { /* подсветка handled ниже */ });
+  } catch(err) {
+    showError('Ошибка при настройке Globe: ' + err.message);
+  }
+
+  // Устанавливаем управление камерой (OrbitControls уже подключён)
+  try {
+    const controls = globe.controls();
+    if (controls) {
+      controls.enablePan = false;
+      controls.enableZoom = true;
+      controls.rotateSpeed = 0.4;
+      controls.zoomSpeed = 0.7;
+      controls.autoRotate = true;
+      controls.autoRotateSpeed = 0.6;
+      // пределы
+      controls.minDistance = 100;
+      controls.maxDistance = 800;
+    }
+  } catch(err) {
+    showError('Ошибка при настройке контролов: ' + err.message);
+  }
+
+  // Загружаем GeoJSON границ стран (публичный источник)
+  const geoUrl = 'https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson';
+  fetch(geoUrl).then(r => {
+    if(!r.ok) throw new Error('Ошибка загрузки GeoJSON: ' + r.status);
+    return r.json();
+  }).then(geo => {
+    // GeoJSON должен иметь features[]
+    if(!geo || !geo.features) {
+      showError('GeoJSON не содержит features.');
+      return;
+    }
+    globe.polygonsData(geo.features)
+         .polygonLabel(({ properties }) => `<b>${properties.name || properties.ADMIN || 'Unknown'}</b>`)
+         .polygonCapColor(d => d === globe._hovering ? 'rgba(0,255,0,0.6)' : 'rgba(200,0,0,0.35)');
+    document.getElementById('msg').style.display = 'none';
+  }).catch(err => {
+    showError('Не удалось загрузить границы стран: ' + err.message);
+  });
+
+  // Подсветка при наведении (безопасный доступ к внутренним данным)
+  (function enableHoverHighLight(){
+    let last = null;
+    globe.onPolygonHover(d => {
+      last = d;
+      globe.polygonCapColor(f => f === d ? 'rgba(0, 200, 0, 0.7)' : 'rgba(200,0,0,0.35)');
+    });
+    globe.onPolygonClick(d => {
+      if(!d) return;
+      const name = (d.properties && (d.properties.name || d.properties.ADMIN)) || 'Unknown';
+      alert('Страна: ' + name);
+    });
+  })();
+
+  // Финальная проверка: если canvas не появился через 3 сек — выдадим подсказку
+  setTimeout(() => {
+    const canv = container.querySelector('canvas');
+    if(!canv) {
+      showError('Canvas не найден в контейнере. Откройте DevTools → Console и посмотрите ошибки.');
+    }
+  }, 3000);
+
+})(); // /IIFE
 </script>
 </body>
 </html>
+
