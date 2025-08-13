@@ -2,10 +2,11 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Вращающийся 3D-глобус с текстурой</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Вращающийся 3D-глобус с зумом</title>
     <style>
+        :root { --ui-size: 44px; --ui-gap: 10px; }
         body {
             margin: 0;
             padding: 0;
@@ -18,147 +19,243 @@
             align-items: center;
             flex-direction: column;
             height: 100vh;
-            gap: 20px;
+            gap: 12px;
         }
-        h1 {
-            margin: 0;
-            font-weight: 300;
+        h1 { margin: 12px 0 0 0; font-weight: 300; pointer-events: none; }
+        #loading-text { font-size: 1rem; color: #bbb; margin-bottom: 6px; pointer-events: none; }
+        #canvas-wrap { width: 100vw; height: calc(100vh - 88px); display:flex; justify-content:center; align-items:center; }
+        canvas { display: block; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); max-width: 90vw; max-height: 80vh; }
+        /* UI zoom buttons */
+        .zoom-ui {
+            position: absolute;
+            right: 18px;
+            top: 18px;
+            display:flex;
+            flex-direction: column;
+            gap: var(--ui-gap);
+            z-index: 999;
         }
-        canvas {
-            display: block;
-            border-radius: 15px;
-            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.5);
-            max-width: 90vw;
-            max-height: 80vh;
+        .zoom-btn {
+            width: var(--ui-size);
+            height: var(--ui-size);
+            border-radius: 10px;
+            border: none;
+            background: rgba(255,255,255,0.06);
+            color: #fff;
+            font-size: 20px;
+            cursor: pointer;
+            box-shadow: 0 6px 12px rgba(0,0,0,0.4);
+            transition: background .12s, transform .08s;
+            display:flex; align-items:center; justify-content:center;
+            user-select:none;
         }
-        #loading-text {
-            font-size: 1.2rem;
-            color: #888;
-        }
+        .zoom-btn:active { transform: translateY(1px) scale(.98); background: rgba(255,255,255,0.09); }
+        .zoom-btn:hover { background: rgba(255,255,255,0.09); }
+        /* small note */
+        .note { position: absolute; left: 18px; top: 18px; color:#ccc; font-size:13px; z-index:999; }
     </style>
 </head>
 <body>
     <h1>Вращающийся 3D-глобус</h1>
     <div id="loading-text">Загрузка глобуса...</div>
-    <!-- Загрузка библиотеки three.js с CDN -->
+
+    <div id="canvas-wrap"></div>
+
+    <div class="zoom-ui" aria-hidden="false">
+        <button id="zoom-in" class="zoom-btn" title="Увеличить (+)">＋</button>
+        <button id="zoom-out" class="zoom-btn" title="Уменьшить (−)">−</button>
+    </div>
+    <div class="note">Крутите мышью, колесо — зум, pinch для тач.</div>
+
+    <!-- three.js r128 (как в исходнике) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
     <script>
-        // Инициализация сцены, камеры и рендерера
-        const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
+    // === Сцена, камера, рендер ===
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    // поместим canvas внутрь контейнера, чтобы заголовок и UI были видны
+    const wrap = document.getElementById('canvas-wrap');
+    wrap.appendChild(renderer.domElement);
+    // выставляем начальные размеры
+    function resizeRenderer() {
+        const w = wrap.clientWidth;
+        const h = wrap.clientHeight;
+        renderer.setSize(w, h);
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+    }
+    resizeRenderer();
 
-        // Установка размера рендерера и добавление его в DOM
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        document.body.appendChild(renderer.domElement);
+    // позиция камеры и целевой объект (смотреть в центр)
+    camera.position.z = 5;
+    const CAMERA_MIN_Z = 2.2;  // максимально приблизиться
+    const CAMERA_MAX_Z = 18;   // максимально отдалиться
 
-        // Позиционируем камеру
-        camera.position.z = 5;
+    // освещение
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambientLight);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    directionalLight.position.set(5, 5, 5);
+    scene.add(directionalLight);
 
-        // Добавление света для освещения сцены
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-        scene.add(ambientLight);
+    // геометрия и переменная для глобуса
+    const geometry = new THREE.SphereGeometry(2, 64, 64);
+    let globe = null;
+    const loadingText = document.getElementById('loading-text');
 
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
-        directionalLight.position.set(5, 5, 5);
-        scene.add(directionalLight);
+    // текстура
+    const textureUrl = 'https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg';
+    const textureLoader = new THREE.TextureLoader();
+    textureLoader.load(
+        textureUrl,
+        (texture) => {
+            loadingText.style.display = 'none';
+            const material = new THREE.MeshPhongMaterial({ map: texture });
+            globe = new THREE.Mesh(geometry, material);
+            scene.add(globe);
+            // старт анимации
+            animate();
+        },
+        undefined,
+        (err) => {
+            console.error('Ошибка при загрузке текстуры:', err);
+            loadingText.textContent = 'Не удалось загрузить текстуру — используется fallback.';
+            const fallbackMaterial = new THREE.MeshPhongMaterial({ color: 0x3366ff });
+            globe = new THREE.Mesh(geometry, fallbackMaterial);
+            scene.add(globe);
+            animate();
+        }
+    );
 
-        // Создаем геометрию сферы
-        const geometry = new THREE.SphereGeometry(2, 64, 64);
-        let globe;
+    // вращение мышью (drag)
+    let isDragging = false;
+    let previousMousePosition = { x: 0, y: 0 };
+    wrap.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        previousMousePosition.x = e.clientX;
+        previousMousePosition.y = e.clientY;
+    }, { passive: true });
+    window.addEventListener('mouseup', () => { isDragging = false; }, { passive: true });
+    window.addEventListener('mousemove', (e) => {
+        if (!isDragging || !globe) return;
+        const deltaMove = { x: e.clientX - previousMousePosition.x, y: e.clientY - previousMousePosition.y };
+        const rotationSpeed = 0.005;
+        globe.rotation.y += deltaMove.x * rotationSpeed;
+        globe.rotation.x += deltaMove.y * rotationSpeed;
+        previousMousePosition.x = e.clientX;
+        previousMousePosition.y = e.clientY;
+    }, { passive: true });
 
-        // **Исправленный** URL-адрес текстуры карты Земли
-        const textureUrl = 'https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg';
-        const textureLoader = new THREE.TextureLoader();
+    // Автовращение, если не тащат
+    let autoRotate = true;
+    const AUTO_ROTATE_SPEED = 0.0025;
 
-        // Отображаем индикатор загрузки
-        const loadingText = document.getElementById('loading-text');
+    // ========== Зум колесом ==========
+    function applyZoom(delta) {
+        // delta: positive -> zoom out (camera z increases), negative -> zoom in
+        // чувствительность:
+        const sensitivity = 0.01;
+        camera.position.z += delta * sensitivity;
+        // clamp
+        camera.position.z = Math.max(CAMERA_MIN_Z, Math.min(CAMERA_MAX_Z, camera.position.z));
+        // всегда смотрим в центр
+        camera.lookAt(0, 0, 0);
+    }
 
-        // Загружаем текстуру
-        textureLoader.load(
-            textureUrl,
-            // Функция, вызываемая после успешной загрузки
-            (texture) => {
-                loadingText.style.display = 'none';
-                
-                // Создаем материал с текстурой
-                const material = new THREE.MeshPhongMaterial({ map: texture });
-                globe = new THREE.Mesh(geometry, material);
-                scene.add(globe);
-                
-                // Запускаем анимационный цикл
-                animate();
-            },
-            // Функция-прогресс (необязательно)
-            undefined,
-            // Функция, вызываемая при ошибке загрузки
-            (err) => {
-                console.error('Ошибка при загрузке текстуры:', err);
-                loadingText.style.display = 'none';
-                
-                // Создаем одноцветный глобус как запасной вариант
-                const fallbackMaterial = new THREE.MeshPhongMaterial({ color: 0x3366ff });
-                globe = new THREE.Mesh(geometry, fallbackMaterial);
-                scene.add(globe);
-                
-                // Запускаем анимационный цикл
-                animate();
-            }
-        );
+    // wheel event on wrap
+    wrap.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        // e.deltaY > 0 when scrolling down (通常 zoom out), invert if needed
+        applyZoom(e.deltaY);
+    }, { passive: false });
 
-        // Переменные для отслеживания вращения с помощью мыши
-        let isDragging = false;
-        let previousMousePosition = { x: 0, y: 0 };
+    // ========== Кнопки + / - ==========
+    document.getElementById('zoom-in').addEventListener('click', () => {
+        // zoom in (decrease z)
+        applyZoom(-120); // большой шаг
+    });
+    document.getElementById('zoom-out').addEventListener('click', () => {
+        applyZoom(120);
+    });
 
-        // Обработчики событий для вращения глобуса
-        document.addEventListener('mousedown', (e) => {
+    // ========== Pinch-to-zoom для тач ==========
+    let touchInitialDist = null;
+    let touchInitialCameraZ = null;
+
+    function getTouchDistance(t) {
+        const dx = t[0].clientX - t[1].clientX;
+        const dy = t[0].clientY - t[1].clientY;
+        return Math.sqrt(dx*dx + dy*dy);
+    }
+
+    wrap.addEventListener('touchstart', (e) => {
+        if (e.touches && e.touches.length === 2) {
+            touchInitialDist = getTouchDistance(e.touches);
+            touchInitialCameraZ = camera.position.z;
+        } else if (e.touches && e.touches.length === 1) {
+            // emulate drag for single touch
             isDragging = true;
-            previousMousePosition.x = e.clientX;
-            previousMousePosition.y = e.clientY;
-        });
+            previousMousePosition.x = e.touches[0].clientX;
+            previousMousePosition.y = e.touches[0].clientY;
+        }
+    }, { passive: true });
 
-        document.addEventListener('mouseup', () => {
-            isDragging = false;
-        });
-
-        document.addEventListener('mousemove', (e) => {
-            if (!isDragging || !globe) return;
-            
-            const deltaMove = {
-                x: e.clientX - previousMousePosition.x,
-                y: e.clientY - previousMousePosition.y
-            };
-
+    wrap.addEventListener('touchmove', (e) => {
+        if (e.touches && e.touches.length === 2 && touchInitialDist && touchInitialCameraZ !== null) {
+            const newDist = getTouchDistance(e.touches);
+            const scale = newDist / touchInitialDist;
+            // apply scale to camera z (invert scale effect)
+            const newZ = touchInitialCameraZ / scale;
+            camera.position.z = Math.max(CAMERA_MIN_Z, Math.min(CAMERA_MAX_Z, newZ));
+            camera.lookAt(0,0,0);
+        } else if (e.touches && e.touches.length === 1 && isDragging && globe) {
+            const t = e.touches[0];
+            const deltaMove = { x: t.clientX - previousMousePosition.x, y: t.clientY - previousMousePosition.y };
             const rotationSpeed = 0.005;
             globe.rotation.y += deltaMove.x * rotationSpeed;
             globe.rotation.x += deltaMove.y * rotationSpeed;
-
-            previousMousePosition = {
-                x: e.clientX,
-                y: e.clientY
-            };
-        });
-
-        // Основной цикл анимации
-        function animate() {
-            requestAnimationFrame(animate);
-
-            // Автоматическое вращение, когда глобус не перетаскивают
-            if (globe && !isDragging) {
-                globe.rotation.y += 0.002;
-            }
-
-            renderer.render(scene, camera);
+            previousMousePosition.x = t.clientX;
+            previousMousePosition.y = t.clientY;
         }
+    }, { passive: true });
 
-        // Обработчик изменения размера окна для адаптивности
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
+    wrap.addEventListener('touchend', (e) => {
+        if (!e.touches || e.touches.length < 2) {
+            touchInitialDist = null;
+            touchInitialCameraZ = null;
+        }
+        if (!e.touches || e.touches.length === 0) {
+            isDragging = false;
+        }
+    }, { passive: true });
+
+    // Обновление размера при ресайзе окна
+    window.addEventListener('resize', () => {
+        resizeRenderer();
+    });
+
+    // Анимация
+    function animate() {
+        requestAnimationFrame(animate);
+        if (globe && autoRotate && !isDragging) globe.rotation.y += AUTO_ROTATE_SPEED;
+        renderer.render(scene, camera);
+    }
+
+    // Инициализация: выставляем начальные параметры рендера (вызов ещё раз на случай перестроения DOM)
+    resizeRenderer();
+    camera.lookAt(0, 0, 0);
+
+    // Поддержка открытия canvas в полноэкранном блоке при double-click (опционально)
+    renderer.domElement.addEventListener('dblclick', () => {
+        if (document.fullscreenElement) document.exitFullscreen();
+        else wrap.requestFullscreen?.();
+    });
+
     </script>
 </body>
 </html>
+
 
