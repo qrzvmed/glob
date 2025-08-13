@@ -5,67 +5,212 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>Вращающийся 3D-глобус со странами</title>
     <style>
-        body { margin: 0; padding: 0; overflow: hidden; background-color: #1a1a1a; }
-        #canvas-wrap { width: 100vw; height: 100vh; display:flex; justify-content:center; align-items:center; }
-        canvas { display: block; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); }
+        :root { --ui-size: 44px; --ui-gap: 10px; }
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: 'Inter', sans-serif;
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            height: 100vh;
+            gap: 12px;
+        }
+        h1 { margin: 12px 0 0 0; font-weight: 300; pointer-events: none; }
+        #loading-text { font-size: 1rem; color: #bbb; margin-bottom: 6px; pointer-events: none; }
+        #canvas-wrap { width: 100vw; height: calc(100vh - 88px); display:flex; justify-content:center; align-items:center; }
+        canvas { display: block; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); max-width: 90vw; max-height: 80vh; }
+        .zoom-ui {
+            position: absolute;
+            right: 18px;
+            top: 18px;
+            display:flex;
+            flex-direction: column;
+            gap: var(--ui-gap);
+            z-index: 999;
+        }
+        .zoom-btn {
+            width: var(--ui-size);
+            height: var(--ui-size);
+            border-radius: 10px;
+            border: none;
+            background: rgba(255,255,255,0.06);
+            color: #fff;
+            font-size: 20px;
+            cursor: pointer;
+            box-shadow: 0 6px 12px rgba(0,0,0,0.4);
+            transition: background .12s, transform .08s;
+            display:flex; align-items:center; justify-content:center;
+            user-select:none;
+        }
+        .zoom-btn:active { transform: translateY(1px) scale(.98); background: rgba(255,255,255,0.09); }
+        .zoom-btn:hover { background: rgba(255,255,255,0.09); }
+        .note { position: absolute; left: 18px; top: 18px; color:#ccc; font-size:13px; z-index:999; }
     </style>
 </head>
 <body>
-<div id="canvas-wrap"></div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-<script>
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-const renderer = new THREE.WebGLRenderer({antialias:true});
-renderer.setSize(window.innerWidth, window.innerHeight);
-document.getElementById('canvas-wrap').appendChild(renderer.domElement);
+    <h1>Вращающийся 3D-глобус со странами</h1>
+    <div id="loading-text">Загрузка глобуса...</div>
+    <div id="canvas-wrap"></div>
+    <div class="zoom-ui">
+        <button id="zoom-in" class="zoom-btn" title="Увеличить (+)">＋</button>
+        <button id="zoom-out" class="zoom-btn" title="Уменьшить (−)">−</button>
+    </div>
+    <div class="note">Крутите мышью, колесо — зум, pinch для тач.</div>
 
-// Контролы для вращения и зума
-const controls = new THREE.OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.05;
-controls.enableZoom = true;
+    <!-- three.js r128 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
-camera.position.z = 5;
+    <script>
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
 
-// Освещение
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-scene.add(ambientLight);
-const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
-directionalLight.position.set(5,5,5);
-scene.add(directionalLight);
+    const wrap = document.getElementById('canvas-wrap');
+    wrap.appendChild(renderer.domElement);
 
-// Сфера-глобус
-const geometry = new THREE.SphereGeometry(2, 64, 64);
-let globe;
-const loader = new THREE.TextureLoader();
+    function resizeRenderer() {
+        const w = wrap.clientWidth;
+        const h = wrap.clientHeight;
+        renderer.setSize(w, h);
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+    }
+    resizeRenderer();
 
-// Текстура со всеми странами
-loader.load('https://upload.wikimedia.org/wikipedia/commons/thumb/8/80/Equirectangular_projection_SW.jpg/2048px-Equirectangular_projection_SW.jpg', function(texture){
-        const material = new THREE.MeshPhongMaterial({ map: texture });
-        globe = new THREE.Mesh(geometry, material);
-        scene.add(globe);
-        animate();
-    },
-    undefined,
-    function(err){ console.error('Ошибка загрузки текстуры:', err); }
-);
+    camera.position.z = 5;
+    const CAMERA_MIN_Z = 2.2;
+    const CAMERA_MAX_Z = 18;
 
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambientLight);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    directionalLight.position.set(5, 5, 5);
+    scene.add(directionalLight);
 
-function animate(){
-    requestAnimationFrame(animate);
-    if(globe) globe.rotation.y += 0.001; // медленное вращение
-    controls.update();
-    renderer.render(scene, camera);
-}
+    const geometry = new THREE.SphereGeometry(2, 64, 64);
+    let globe = null;
+    const loadingText = document.getElementById('loading-text');
 
-// Адаптивность
-window.addEventListener('resize', ()=>{
-    camera.aspect = window.innerWidth/window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-});
-</script>
+    // Текстура с границами стран
+    const textureUrl = 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/80/Equirectangular_projection_SW.jpg/2048px-Equirectangular_projection_SW.jpg';
+    const textureLoader = new THREE.TextureLoader();
+    textureLoader.load(
+        textureUrl,
+        (texture) => {
+            loadingText.style.display = 'none';
+            const material = new THREE.MeshPhongMaterial({ map: texture });
+            globe = new THREE.Mesh(geometry, material);
+            scene.add(globe);
+            animate();
+        },
+        undefined,
+        (err) => {
+            console.error('Ошибка при загрузке текстуры:', err);
+            loadingText.textContent = 'Не удалось загрузить текстуру — используется fallback.';
+            const fallbackMaterial = new THREE.MeshPhongMaterial({ color: 0x3366ff });
+            globe = new THREE.Mesh(geometry, fallbackMaterial);
+            scene.add(globe);
+            animate();
+        }
+    );
+
+    // Вращение мышью
+    let isDragging = false;
+    let previousMousePosition = { x: 0, y: 0 };
+    wrap.addEventListener('mousedown', e => {
+        isDragging = true;
+        previousMousePosition.x = e.clientX;
+        previousMousePosition.y = e.clientY;
+    });
+    window.addEventListener('mouseup', () => { isDragging = false; });
+    window.addEventListener('mousemove', e => {
+        if (!isDragging || !globe) return;
+        const deltaMove = { x: e.clientX - previousMousePosition.x, y: e.clientY - previousMousePosition.y };
+        globe.rotation.y += deltaMove.x * 0.005;
+        globe.rotation.x += deltaMove.y * 0.005;
+        previousMousePosition.x = e.clientX;
+        previousMousePosition.y = e.clientY;
+    });
+
+    // Автовращение
+    let autoRotate = true;
+    const AUTO_ROTATE_SPEED = 0.0025;
+
+    // Зум
+    function applyZoom(delta) {
+        camera.position.z += delta * 0.01;
+        camera.position.z = Math.max(CAMERA_MIN_Z, Math.min(CAMERA_MAX_Z, camera.position.z));
+        camera.lookAt(0, 0, 0);
+    }
+
+    wrap.addEventListener('wheel', e => {
+        e.preventDefault();
+        applyZoom(e.deltaY);
+    }, { passive: false });
+
+    document.getElementById('zoom-in').addEventListener('click', () => applyZoom(-120));
+    document.getElementById('zoom-out').addEventListener('click', () => applyZoom(120));
+
+    // Pinch-to-zoom
+    let touchInitialDist = null;
+    let touchInitialCameraZ = null;
+    function getTouchDistance(t) {
+        const dx = t[0].clientX - t[1].clientX;
+        const dy = t[0].clientY - t[1].clientY;
+        return Math.sqrt(dx*dx + dy*dy);
+    }
+    wrap.addEventListener('touchstart', e => {
+        if (e.touches.length === 2) {
+            touchInitialDist = getTouchDistance(e.touches);
+            touchInitialCameraZ = camera.position.z;
+        } else if (e.touches.length === 1) {
+            isDragging = true;
+            previousMousePosition.x = e.touches[0].clientX;
+            previousMousePosition.y = e.touches[0].clientY;
+        }
+    });
+    wrap.addEventListener('touchmove', e => {
+        if (e.touches.length === 2 && touchInitialDist && touchInitialCameraZ !== null) {
+            const newDist = getTouchDistance(e.touches);
+            const scale = newDist / touchInitialDist;
+            camera.position.z = Math.max(CAMERA_MIN_Z, Math.min(CAMERA_MAX_Z, touchInitialCameraZ / scale));
+            camera.lookAt(0, 0, 0);
+        } else if (e.touches.length === 1 && isDragging && globe) {
+            const t = e.touches[0];
+            const deltaMove = { x: t.clientX - previousMousePosition.x, y: t.clientY - previousMousePosition.y };
+            globe.rotation.y += deltaMove.x * 0.005;
+            globe.rotation.x += deltaMove.y * 0.005;
+            previousMousePosition.x = t.clientX;
+            previousMousePosition.y = t.clientY;
+        }
+    });
+    wrap.addEventListener('touchend', e => {
+        if (e.touches.length < 2) {
+            touchInitialDist = null;
+            touchInitialCameraZ = null;
+        }
+        if (e.touches.length === 0) isDragging = false;
+    });
+
+    window.addEventListener('resize', () => { resizeRenderer(); });
+
+    function animate() {
+        requestAnimationFrame(animate);
+        if (globe && autoRotate && !isDragging) globe.rotation.y += AUTO_ROTATE_SPEED;
+        renderer.render(scene, camera);
+    }
+    resizeRenderer();
+    camera.lookAt(0, 0, 0);
+    renderer.domElement.addEventListener('dblclick', () => {
+        if (document.fullscreenElement) document.exitFullscreen();
+        else wrap.requestFullscreen?.();
+    });
+    </script>
 </body>
 </html>
