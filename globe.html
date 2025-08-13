@@ -1,68 +1,62 @@
 
 <!doctype html>
-<html lang="en">
+<html lang="ru">
 <head>
   <meta charset="utf-8">
-  <title>3D Globe — Three.js</title>
+  <title>3D Globe — Three.js (module)</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
-    html,body { height:100%; margin:0; background:#000; color:#fff; overflow:hidden; }
-    #container { width:100%; height:100vh; }
-    #info { position:absolute; left:10px; top:10px; z-index:10;
-           background:rgba(0,0,0,0.4); padding:8px 12px; border-radius:6px;
-           font-family:Arial, sans-serif; font-size:13px; color:#fff; }
-    #err { position:absolute; left:10px; right:10px; bottom:10px; z-index:11;
-          max-height:180px; overflow:auto; display:none;
-          background: rgba(255,0,0,0.06); color:#f88; padding:8px; border-radius:6px;
-          font-family:monospace; font-size:12px; }
+    html,body{height:100%;margin:0;background:#000;color:#fff;overflow:hidden}
+    #container{width:100%;height:100vh}
+    #info{position:absolute;left:10px;top:10px;z-index:10;background:rgba(0,0,0,0.4);padding:8px 12px;border-radius:6px;font-family:Arial;font-size:13px}
+    #err{position:absolute;left:10px;right:10px;bottom:10px;z-index:11;max-height:200px;overflow:auto;display:none;background:rgba(255,0,0,0.06);color:#f88;padding:8px;border-radius:6px;font-family:monospace;font-size:12px}
   </style>
-
-  <!-- three.js and OrbitControls (r150) -->
-  <script src="https://unpkg.com/three@0.150.1/build/three.min.js"></script>
-  <script src="https://unpkg.com/three@0.150.1/examples/js/controls/OrbitControls.js"></script>
 </head>
 <body>
-  <div id="info">Rotate with mouse, wheel to zoom. Click a border to see country name.</div>
+  <div id="info">Вращайте мышью, колесико — масштаб. Клик по линии — название страны.</div>
   <div id="container"></div>
   <pre id="err"></pre>
 
-<script>
-(function(){
+  <script type="module">
+  // Импорт модульной сборки three и OrbitControls
+  import * as THREE from 'https://unpkg.com/three@0.150.1/build/three.module.js';
+  import { OrbitControls } from 'https://unpkg.com/three@0.150.1/examples/jsm/controls/OrbitControls.js';
+
   const errBox = document.getElementById('err');
   function showErr(msg){
     errBox.style.display = 'block';
-    errBox.textContent += msg + "
-";
+    errBox.textContent += msg + "\n";
     console.error(msg);
   }
 
-  if (typeof THREE === 'undefined'){
-    showErr('Three.js not loaded.');
-    return;
+  // Базовые проверки
+  if (!THREE) {
+    showErr('Не удалось загрузить three.js');
+    throw new Error('three.js not loaded');
   }
 
   const container = document.getElementById('container');
 
-  // renderer
+  // Рендерер
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(container.clientWidth, container.clientHeight);
   renderer.outputEncoding = THREE.sRGBEncoding;
   container.appendChild(renderer.domElement);
 
-  // scene + camera
+  // Сцена и камера
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 2000);
   camera.position.set(0, 0, 320);
 
-  // lights
+  // Свет
   scene.add(new THREE.AmbientLight(0xbbbbbb, 0.9));
   const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
   dirLight.position.set(100, 100, 100);
   scene.add(dirLight);
 
-  // controls
-  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  // Контролы
+  const controls = new OrbitControls(camera, renderer.domElement);
   controls.enablePan = false;
   controls.enableZoom = true;
   controls.autoRotate = false;
@@ -70,18 +64,26 @@
   controls.minDistance = 140;
   controls.maxDistance = 800;
 
-  // Earth sphere
+  // Планета
   const R = 100;
   const sphereGeo = new THREE.SphereGeometry(R, 64, 64);
-
   const loader = new THREE.TextureLoader();
 
-  // use remote textures (HTTPS)
-  const earthTexture = 'https://unpkg.com/three-globe/example/img/earth-dark.jpg';
-  const bumpTexture  = 'https://unpkg.com/three-globe/example/img/earth-topology.png';
+  // Обёртка для загрузки текстуры как Promise
+  function loadTextureAsync(url){
+    return new Promise((resolve, reject) => {
+      loader.load(url, tex => resolve(tex), undefined, err => reject(err));
+    });
+  }
 
-  Promise.all([loader.loadAsync(earthTexture), loader.loadAsync(bumpTexture)])
-    .then(([mapTex, bumpTex]) => {
+  (async function initTextures(){
+    const earthTextureUrl = 'https://unpkg.com/three-globe/example/img/earth-dark.jpg';
+    const bumpTextureUrl  = 'https://unpkg.com/three-globe/example/img/earth-topology.png';
+    try {
+      const [mapTex, bumpTex] = await Promise.all([
+        loadTextureAsync(earthTextureUrl),
+        loadTextureAsync(bumpTextureUrl)
+      ]);
       mapTex.encoding = THREE.sRGBEncoding;
       const mat = new THREE.MeshStandardMaterial({
         map: mapTex,
@@ -92,46 +94,50 @@
       });
       const earthMesh = new THREE.Mesh(sphereGeo, mat);
       scene.add(earthMesh);
-    })
-    .catch(err => {
-      showErr('Texture load failed: ' + (err && err.message ? err.message : err));
+    } catch(e){
+      showErr('Не удалось загрузить текстуры: ' + (e.message || e));
       const fallbackMat = new THREE.MeshStandardMaterial({ color: 0x0a2340 });
       scene.add(new THREE.Mesh(sphereGeo, fallbackMat));
-    });
+    }
+  })();
 
-  // borders group
+  // Группа для границ
   const bordersGroup = new THREE.Group();
   scene.add(bordersGroup);
 
+  // Конвертер координат
   function latLonToVector3(lat, lon, radius){
-    const latRad = THREE.MathUtils.degToRad(lat);
-    const lonRad = THREE.MathUtils.degToRad(lon);
-    const x = radius * Math.cos(latRad) * Math.cos(lonRad);
-    const y = radius * Math.sin(latRad);
-    const z = radius * Math.cos(latRad) * Math.sin(lonRad);
+    const phi = (90 - lat) * (Math.PI / 180);
+    const theta = (lon + 180) * (Math.PI / 180);
+    const x = - (radius) * Math.sin(phi) * Math.cos(theta);
+    const z = (radius) * Math.sin(phi) * Math.sin(theta);
+    const y = (radius) * Math.cos(phi);
     return new THREE.Vector3(x, y, z);
   }
 
-  // load geojson
+  // Загружаем GeoJSON (публичный файл)
   const geoUrl = 'https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson';
-  fetch(geoUrl).then(r => {
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return r.json();
-  }).then(geo => {
-    if (!geo.features) throw new Error('GeoJSON missing features');
+
+  try {
+    const resp = await fetch(geoUrl);
+    if(!resp.ok) throw new Error('HTTP ' + resp.status);
+    const geo = await resp.json();
+    if(!geo.features) throw new Error('GeoJSON не содержит features');
+
     const lineMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 1, opacity: 0.85 });
     const lineObjects = [];
 
     geo.features.forEach(feature => {
       const geom = feature.geometry;
       const props = feature.properties || {};
-      const name = props.name || props.ADMIN || 'Unknown';
-      let polygons = [];
-      if (geom.type === 'Polygon') polygons.push(geom.coordinates);
-      else if (geom.type === 'MultiPolygon') polygons = polygons.concat(geom.coordinates);
+      const name = props.name || props.ADMIN || props.NAME || 'Unknown';
+      const polys = [];
+
+      if (geom.type === 'Polygon') polys.push(geom.coordinates);
+      else if (geom.type === 'MultiPolygon') polys.push(...geom.coordinates);
       else return;
 
-      polygons.forEach(polygon => {
+      polys.forEach(polygon => {
         polygon.forEach(ring => {
           const pts = [];
           for (let i = 0; i < ring.length; i++){
@@ -149,7 +155,7 @@
       });
     });
 
-    // raycaster
+    // Raycaster для кликов
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
     function onClick(e){
@@ -161,14 +167,16 @@
       if (intersects.length > 0){
         const obj = intersects[0].object;
         const name = obj.userData && obj.userData.name ? obj.userData.name : 'Unknown';
-        alert('Country: ' + name);
+        alert('Страна: ' + name);
       }
     }
     renderer.domElement.addEventListener('click', onClick, false);
-  }).catch(err => {
-    showErr('GeoJSON load failed: ' + (err && err.message ? err.message : err));
-  });
 
+  } catch(err){
+    showErr('Не удалось загрузить GeoJSON: ' + (err.message || err));
+  }
+
+  // Анимация
   function animate(){
     requestAnimationFrame(animate);
     controls.update();
@@ -176,19 +184,19 @@
   }
   animate();
 
+  // Resize
   window.addEventListener('resize', () => {
     renderer.setSize(container.clientWidth, container.clientHeight);
     camera.aspect = container.clientWidth / container.clientHeight;
     camera.updateProjectionMatrix();
   });
 
-  // quick sanity check
+  // sanity
   setTimeout(()=> {
-    if (!container.querySelector('canvas')) showErr('Canvas not found. Check console for errors.');
+    if(!container.querySelector('canvas')) showErr('Canvas не найден — откройте DevTools → Console для деталей.');
   }, 1500);
 
-})();
-</script>
+  </script>
 </body>
 </html>
 
