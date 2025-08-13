@@ -3,155 +3,147 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <title>Interactive 3D Globe</title>
+  <title>Interactive 3D Globe (Three.js + three-globe)</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
-    html,body { height:100%; margin:0; background:#000; color:#fff; font-family:Arial, sans-serif; }
-    #globeViz { width:100%; height:100vh; display:block; }
-    #msg { position: absolute; top:10px; left:10px; z-index:999; background:rgba(0,0,0,0.5); padding:8px 12px; border-radius:6px; }
-    #errBox { position: absolute; bottom:10px; left:10px; right:10px; max-height:200px; overflow:auto; background:rgba(255,0,0,0.1); color:#fff; padding:8px; font-size:13px; display:none; border-radius:6px;}
+    html,body { height:100%; margin:0; background:#000; color:#fff; }
+    #container { width:100%; height:100vh; display:block; }
+    #info { position: absolute; left:10px; top:10px; z-index: 10; background: rgba(0,0,0,0.3); padding:8px 12px; border-radius:6px; font-family:Arial; font-size:13px; }
+    #err { position: absolute; left:10px; bottom:10px; right:10px; z-index:11; color:#f88; font-family:monospace; display:none; background: rgba(0,0,0,0.6); padding:8px; border-radius:6px; max-height:200px; overflow:auto; }
   </style>
-  <!-- Three.js -->
-  <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
-  <!-- OrbitControls (examples) -->
-  <script src="https://unpkg.com/three@0.152.2/examples/js/controls/OrbitControls.js"></script>
-  <!-- Globe.gl -->
-  <script src="https://unpkg.com/globe.gl@4.6.8/dist/globe.gl.min.js"></script>
+
+  <!-- three.js (r150) -->
+  <script src="https://unpkg.com/three@0.150.1/build/three.min.js"></script>
+  <!-- OrbitControls (non-ES version) -->
+  <script src="https://unpkg.com/three@0.150.1/examples/js/controls/OrbitControls.js"></script>
+  <!-- three-globe (UMD build) -->
+  <script src="https://unpkg.com/three-globe@2.26.11/dist/three-globe.min.js"></script>
 </head>
 <body>
-  <div id="msg">Загрузка глобуса… Если видите пустой экран — откройте консоль (F12) и посмотрите ошибки.</div>
-  <div id="globeViz"></div>
-  <div id="errBox"></div>
+  <div id="info">Вращайте мышью, колесо — масштаб. Клик по стране — её название.</div>
+  <div id="container"></div>
+  <pre id="err"></pre>
 
 <script>
 (function(){
-  const errBox = document.getElementById('errBox');
-  function showError(msg){
+  const errBox = document.getElementById('err');
+  function showErr(msg){
     errBox.style.display = 'block';
-    const p = document.createElement('div');
-    p.textContent = msg;
-    errBox.appendChild(p);
+    errBox.textContent += msg + "
+";
     console.error(msg);
   }
 
-  window.addEventListener('error', function(e){
-    showError('Ошибка JS: ' + (e && e.message ? e.message : JSON.stringify(e)));
+  // Базовые проверки
+  if (typeof THREE === 'undefined') {
+    showErr('Three.js не загружен.');
+    return;
+  }
+  if (typeof ThreeGlobe === 'undefined') {
+    showErr('three-globe не загружен (ThreeGlobe не определён). Проверь подключение скрипта three-globe.');
+    return;
+  }
+
+  const container = document.getElementById('container');
+
+  // Сцена, камера, рендерер
+  const scene = new THREE.Scene();
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(container.clientWidth, container.clientHeight);
+  container.appendChild(renderer.domElement);
+
+  const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 2000);
+  camera.position.set(0, 0, 400);
+
+  // Свет
+  scene.add(new THREE.AmbientLight(0xbbbbbb));
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+  dirLight.position.set(40, 40, 100);
+  scene.add(dirLight);
+
+  // Контролы
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enablePan = false;
+  controls.enableZoom = true;
+  controls.autoRotate = false; // можно true
+  controls.autoRotateSpeed = 0.6;
+  controls.minDistance = 120;
+  controls.maxDistance = 800;
+
+  // Создаём ThreeGlobe
+  const Globe = new ThreeGlobe()
+    .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-dark.jpg')
+    .bumpImageUrl('https://unpkg.com/three-globe/example/img/earth-topology.png')
+    .backgroundImageUrl('https://unpkg.com/three-globe/example/img/night-sky.png')
+    .showAtmosphere(true)
+    .atmosphereColor('#3a228a')
+    .atmosphereAltitude(0.25)
+    .polygonsData([]) // пока пусто
+    .polygonCapColor(() => 'rgba(200, 0, 0, 0.35)')
+    .polygonSideColor(() => 'rgba(0, 0, 0, 0.15)')
+    .polygonStrokeColor(() => '#111')
+    .polygonAltitude(0.01)
+    .onPolygonHover(d => {
+      // handled below
+    });
+
+  scene.add(Globe);
+
+  // Подсветка и клик
+  let lastHover = null;
+  Globe.onPolygonHover(d => {
+    lastHover = d;
+    Globe.polygonCapColor(f => f === d ? 'rgba(0,200,0,0.6)' : 'rgba(200,0,0,0.35)');
   });
 
-  // Проверяем наличия зависимостей
-  if (typeof THREE === 'undefined') {
-    showError('Three.js не загружен.');
-    return;
-  }
-  if (typeof Globe === 'undefined' && typeof ThreeGlobe === 'undefined') {
-    showError('Three-Globe (Globe.gl) не загружен.');
-    return;
-  }
+  Globe.onPolygonClick(d => {
+    if(!d) return;
+    const props = d.properties || {};
+    const name = props.name || props.ADMIN || props.NAME || 'Unknown';
+    alert('Страна: ' + name);
+  });
 
-  const container = document.getElementById('globeViz');
-
-  // Создаём объект Globe (Globe() или ThreeGlobe() в зависимости от версии)
-  // Globe.gl обычно экспортирует глобальную функцию Globe()
-  let globe;
-  try {
-    globe = (typeof Globe !== 'undefined') ? Globe() : (typeof ThreeGlobe !== 'undefined' ? new ThreeGlobe() : null);
-    if (!globe) throw new Error('Не удалось создать объект Globe.');
-  } catch(err) {
-    showError('Ошибка создания Globe: ' + err.message);
-    return;
-  }
-
-  // Инициализация сцены/камеры внутри Globe.gl — библиотека сама создаёт canvas при вызове globe(container)
-  try {
-    globe(container);
-  } catch(err) {
-    showError('Ошибка при добавлении глобуса в DOM: ' + err.message);
-    return;
-  }
-
-  // Настройки текстур (надёжные CDN-пути)
-  const globeImg = 'https://unpkg.com/three-globe/example/img/earth-dark.jpg';
-  const bumpImg  = 'https://unpkg.com/three-globe/example/img/earth-topology.png';
-  const bgImg    = 'https://unpkg.com/three-globe/example/img/night-sky.png';
-
-  // Применяем текстуры и базовые параметры
-  try {
-    globe
-      .globeImageUrl(globeImg)
-      .bumpImageUrl(bumpImg)
-      .backgroundImageUrl(bgImg)
-      .showAtmosphere(true)
-      .atmosphereColor('lightskyblue')
-      .atmosphereAltitude(0.2)
-      .polygonAltitude(0.01)
-      .polygonCapColor(() => 'rgba(200, 0, 0, 0.35)')
-      .polygonSideColor(() => 'rgba(0, 0, 0, 0.15)')
-      .polygonStrokeColor(() => '#222')
-      .onPolygonHover(d => { /* подсветка handled ниже */ });
-  } catch(err) {
-    showError('Ошибка при настройке Globe: ' + err.message);
-  }
-
-  // Устанавливаем управление камерой (OrbitControls уже подключён)
-  try {
-    const controls = globe.controls();
-    if (controls) {
-      controls.enablePan = false;
-      controls.enableZoom = true;
-      controls.rotateSpeed = 0.4;
-      controls.zoomSpeed = 0.7;
-      controls.autoRotate = true;
-      controls.autoRotateSpeed = 0.6;
-      // пределы
-      controls.minDistance = 100;
-      controls.maxDistance = 800;
-    }
-  } catch(err) {
-    showError('Ошибка при настройке контролов: ' + err.message);
-  }
-
-  // Загружаем GeoJSON границ стран (публичный источник)
+  // Загружаем GeoJSON границ стран (features array)
   const geoUrl = 'https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson';
   fetch(geoUrl).then(r => {
     if(!r.ok) throw new Error('Ошибка загрузки GeoJSON: ' + r.status);
     return r.json();
-  }).then(geo => {
-    // GeoJSON должен иметь features[]
-    if(!geo || !geo.features) {
-      showError('GeoJSON не содержит features.');
-      return;
+  }).then(data => {
+    if(data.features && data.features.length){
+      Globe.polygonsData(data.features);
+    } else {
+      showErr('GeoJSON не содержит features.');
     }
-    globe.polygonsData(geo.features)
-         .polygonLabel(({ properties }) => `<b>${properties.name || properties.ADMIN || 'Unknown'}</b>`)
-         .polygonCapColor(d => d === globe._hovering ? 'rgba(0,255,0,0.6)' : 'rgba(200,0,0,0.35)');
-    document.getElementById('msg').style.display = 'none';
   }).catch(err => {
-    showError('Не удалось загрузить границы стран: ' + err.message);
+    showErr('Не удалось загрузить GeoJSON: ' + err.message);
   });
 
-  // Подсветка при наведении (безопасный доступ к внутренним данным)
-  (function enableHoverHighLight(){
-    let last = null;
-    globe.onPolygonHover(d => {
-      last = d;
-      globe.polygonCapColor(f => f === d ? 'rgba(0, 200, 0, 0.7)' : 'rgba(200,0,0,0.35)');
-    });
-    globe.onPolygonClick(d => {
-      if(!d) return;
-      const name = (d.properties && (d.properties.name || d.properties.ADMIN)) || 'Unknown';
-      alert('Страна: ' + name);
-    });
-  })();
+  // Анимация
+  function animate(){
+    requestAnimationFrame(animate);
+    // лёгкое автоворочение планеты (если хотите)
+    // Globe.rotation.y += 0.0005; // не всегда нужно; можно раскомментировать
+    controls.update();
+    renderer.render(scene, camera);
+  }
+  animate();
 
-  // Финальная проверка: если canvas не появился через 3 сек — выдадим подсказку
+  // Resize
+  window.addEventListener('resize', () => {
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    camera.aspect = container.clientWidth / container.clientHeight;
+    camera.updateProjectionMatrix();
+  });
+
+  // debug: проверим, есть ли canvas
   setTimeout(() => {
-    const canv = container.querySelector('canvas');
-    if(!canv) {
-      showError('Canvas не найден в контейнере. Откройте DevTools → Console и посмотрите ошибки.');
+    if(!container.querySelector('canvas')) {
+      showErr('Canvas не найден — проверьте консоль браузера на другие ошибки (F12 → Console).');
     }
-  }, 3000);
+  }, 2000);
 
-})(); // /IIFE
+})(); // EOF IIFE
 </script>
 </body>
 </html>
