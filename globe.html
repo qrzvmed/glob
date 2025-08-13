@@ -1,46 +1,33 @@
 
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Interactive 3D Globe — Three.js</title>
+  <title>3D Globe — Three.js</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
     html,body { height:100%; margin:0; background:#000; color:#fff; overflow:hidden; }
     #container { width:100%; height:100vh; }
-    #info {
-      position: absolute; left:10px; top:10px; z-index: 10;
-      background: rgba(0,0,0,0.4); padding:8px 12px; border-radius:6px;
-      font-family: Arial, sans-serif; font-size:13px;
-    }
-    #err {
-      position:absolute; left:10px; right:10px; bottom:10px; z-index: 11;
-      max-height:180px; overflow:auto; display:none;
-      background: rgba(255,0,0,0.08); color:#f88; padding:8px; border-radius:6px;
-      font-family: monospace; font-size:12px;
-    }
+    #info { position:absolute; left:10px; top:10px; z-index:10;
+           background:rgba(0,0,0,0.4); padding:8px 12px; border-radius:6px;
+           font-family:Arial, sans-serif; font-size:13px; color:#fff; }
+    #err { position:absolute; left:10px; right:10px; bottom:10px; z-index:11;
+          max-height:180px; overflow:auto; display:none;
+          background: rgba(255,0,0,0.06); color:#f88; padding:8px; border-radius:6px;
+          font-family:monospace; font-size:12px; }
   </style>
 
-  <!-- three.js (r150+) -->
+  <!-- three.js and OrbitControls (r150) -->
   <script src="https://unpkg.com/three@0.150.1/build/three.min.js"></script>
-  <!-- OrbitControls -->
   <script src="https://unpkg.com/three@0.150.1/examples/js/controls/OrbitControls.js"></script>
 </head>
 <body>
-  <div id="info">Вращайте мышью, колесико — масштаб. Клик по линии — выводит координаты.</div>
+  <div id="info">Rotate with mouse, wheel to zoom. Click a border to see country name.</div>
   <div id="container"></div>
   <pre id="err"></pre>
 
 <script>
-/*
-  3D Globe with country borders using Three.js
-  - loads world.geojson from a public raw URL
-  - draws textured sphere + country border lines slightly above the surface
-  - supports rotate and zoom with OrbitControls
-  - single file, no external Globe.gl dependency
-*/
-
-(async function(){
+(function(){
   const errBox = document.getElementById('err');
   function showErr(msg){
     errBox.style.display = 'block';
@@ -49,78 +36,73 @@
     console.error(msg);
   }
 
-  // Basic checks
-  if (typeof THREE === 'undefined') {
-    showErr('Three.js не загружен. Проверь подключение CDN.');
+  if (typeof THREE === 'undefined'){
+    showErr('Three.js not loaded.');
     return;
   }
 
   const container = document.getElementById('container');
 
-  // Renderer
+  // renderer
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(container.clientWidth, container.clientHeight);
   renderer.outputEncoding = THREE.sRGBEncoding;
   container.appendChild(renderer.domElement);
 
-  // Scene + Camera
+  // scene + camera
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 2000);
   camera.position.set(0, 0, 320);
 
-  // Lights
+  // lights
   scene.add(new THREE.AmbientLight(0xbbbbbb, 0.9));
   const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
   dirLight.position.set(100, 100, 100);
   scene.add(dirLight);
 
-  // Controls
+  // controls
   const controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enablePan = false;
   controls.enableZoom = true;
-  controls.autoRotate = false; // можешь поставить true
+  controls.autoRotate = false;
   controls.autoRotateSpeed = 0.6;
   controls.minDistance = 140;
   controls.maxDistance = 800;
 
   // Earth sphere
-  const R = 100; // radius
+  const R = 100;
   const sphereGeo = new THREE.SphereGeometry(R, 64, 64);
 
-  // Texture URLs (CDN)
-  const earthTextureUrl = 'https://unpkg.com/three-globe/example/img/earth-dark.jpg';
-  const earthBumpUrl    = 'https://unpkg.com/three-globe/example/img/earth-topology.png';
-
-  // Load textures
   const loader = new THREE.TextureLoader();
-  try {
-    const [mapTex, bumpTex] = await Promise.all([
-      loader.loadAsync(earthTextureUrl),
-      loader.loadAsync(earthBumpUrl)
-    ]);
-    mapTex.encoding = THREE.sRGBEncoding;
-    const mat = new THREE.MeshStandardMaterial({
-      map: mapTex,
-      bumpMap: bumpTex,
-      bumpScale: 0.3,
-      metalness: 0.0,
-      roughness: 1.0
-    });
-    const earthMesh = new THREE.Mesh(sphereGeo, mat);
-    scene.add(earthMesh);
-  } catch(e){
-    showErr('Ошибка загрузки текстур: ' + e.message);
-    // Add plain sphere as fallback
-    const fallbackMat = new THREE.MeshStandardMaterial({ color: 0x0a2340 });
-    scene.add(new THREE.Mesh(sphereGeo, fallbackMat));
-  }
 
-  // Group for borders
+  // use remote textures (HTTPS)
+  const earthTexture = 'https://unpkg.com/three-globe/example/img/earth-dark.jpg';
+  const bumpTexture  = 'https://unpkg.com/three-globe/example/img/earth-topology.png';
+
+  Promise.all([loader.loadAsync(earthTexture), loader.loadAsync(bumpTexture)])
+    .then(([mapTex, bumpTex]) => {
+      mapTex.encoding = THREE.sRGBEncoding;
+      const mat = new THREE.MeshStandardMaterial({
+        map: mapTex,
+        bumpMap: bumpTex,
+        bumpScale: 0.3,
+        metalness: 0.0,
+        roughness: 1.0
+      });
+      const earthMesh = new THREE.Mesh(sphereGeo, mat);
+      scene.add(earthMesh);
+    })
+    .catch(err => {
+      showErr('Texture load failed: ' + (err && err.message ? err.message : err));
+      const fallbackMat = new THREE.MeshStandardMaterial({ color: 0x0a2340 });
+      scene.add(new THREE.Mesh(sphereGeo, fallbackMat));
+    });
+
+  // borders group
   const bordersGroup = new THREE.Group();
   scene.add(bordersGroup);
 
-  // Convert lat/lon to 3D
   function latLonToVector3(lat, lon, radius){
     const latRad = THREE.MathUtils.degToRad(lat);
     const lonRad = THREE.MathUtils.degToRad(lon);
@@ -130,51 +112,36 @@
     return new THREE.Vector3(x, y, z);
   }
 
-  // Load GeoJSON
+  // load geojson
   const geoUrl = 'https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson';
-  try {
-    const res = await fetch(geoUrl);
-    if(!res.ok) throw new Error('HTTP ' + res.status);
-    const geo = await res.json();
-    if(!geo.features) throw new Error('GeoJSON не содержит features');
-
-    // For each feature, draw lines for each polygon ring
+  fetch(geoUrl).then(r => {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }).then(geo => {
+    if (!geo.features) throw new Error('GeoJSON missing features');
     const lineMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 1, opacity: 0.85 });
-    const highlightMaterial = new THREE.LineBasicMaterial({ color: 0x00ff88, linewidth: 2 });
-
-    // We'll store mesh + metadata for click detection
     const lineObjects = [];
 
     geo.features.forEach(feature => {
       const geom = feature.geometry;
       const props = feature.properties || {};
-      const name = props.name || props.ADMIN || props.NAME || 'Unknown';
-      // handle Polygon and MultiPolygon
-      const polys = [];
-      if (geom.type === 'Polygon') {
-        polys.push(geom.coordinates);
-      } else if (geom.type === 'MultiPolygon') {
-        geom.coordinates.forEach(p => polys.push(p));
-      } else {
-        return;
-      }
+      const name = props.name || props.ADMIN || 'Unknown';
+      let polygons = [];
+      if (geom.type === 'Polygon') polygons.push(geom.coordinates);
+      else if (geom.type === 'MultiPolygon') polygons = polygons.concat(geom.coordinates);
+      else return;
 
-      polys.forEach(polygon => {
-        // polygon: array of rings, first is outer ring
+      polygons.forEach(polygon => {
         polygon.forEach(ring => {
           const pts = [];
-          for (let i = 0; i < ring.length; i++) {
+          for (let i = 0; i < ring.length; i++){
             const [lon, lat] = ring[i];
-            const v = latLonToVector3(lat, lon, R + 0.8); // slight offset above surface
+            const v = latLonToVector3(lat, lon, R + 0.9);
             pts.push(v.x, v.y, v.z);
           }
-          // create BufferGeometry
           const geometry = new THREE.BufferGeometry();
-          const vertices = new Float32Array(pts);
-          geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-          // Create a Line (closed)
+          geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
           const line = new THREE.LineLoop(geometry, lineMaterial.clone());
-          // Save metadata
           line.userData = { name };
           bordersGroup.add(line);
           lineObjects.push(line);
@@ -182,29 +149,26 @@
       });
     });
 
-    // Raycaster for click detection
+    // raycaster
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
-    function onClick(event){
+    function onClick(e){
       const rect = renderer.domElement.getBoundingClientRect();
-      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(mouse, camera);
-      // Intersect with line objects
       const intersects = raycaster.intersectObjects(lineObjects, true);
-      if (intersects.length > 0) {
+      if (intersects.length > 0){
         const obj = intersects[0].object;
         const name = obj.userData && obj.userData.name ? obj.userData.name : 'Unknown';
-        alert('Страна: ' + name);
+        alert('Country: ' + name);
       }
     }
     renderer.domElement.addEventListener('click', onClick, false);
+  }).catch(err => {
+    showErr('GeoJSON load failed: ' + (err && err.message ? err.message : err));
+  });
 
-  } catch (e) {
-    showErr('Не удалось загрузить или обработать GeoJSON: ' + e.message);
-  }
-
-  // Animation loop
   function animate(){
     requestAnimationFrame(animate);
     controls.update();
@@ -212,21 +176,18 @@
   }
   animate();
 
-  // Resize handler
   window.addEventListener('resize', () => {
     renderer.setSize(container.clientWidth, container.clientHeight);
     camera.aspect = container.clientWidth / container.clientHeight;
     camera.updateProjectionMatrix();
   });
 
-  // sanity check: canvas present
-  setTimeout(() => {
-    if(!container.querySelector('canvas')) {
-      showErr('Canvas не найден. Откройте DevTools → Console, чтобы увидеть ошибки.');
-    }
+  // quick sanity check
+  setTimeout(()=> {
+    if (!container.querySelector('canvas')) showErr('Canvas not found. Check console for errors.');
   }, 1500);
 
-})(); // IIFE
+})();
 </script>
 </body>
 </html>
