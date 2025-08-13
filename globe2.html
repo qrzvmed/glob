@@ -42,9 +42,7 @@ let globe;
 const loader = new THREE.TextureLoader();
 
 // Текстура со всеми странами
-loader.load(
-    'https://raw.githubusercontent.com/roblabs/3D-globe-textures/main/earth_country_borders.jpg',
-    function(texture){
+loader.load('https://upload.wikimedia.org/wikipedia/commons/thumb/8/80/Equirectangular_projection_SW.jpg/2048px-Equirectangular_projection_SW.jpg', function(texture){
         const material = new THREE.MeshPhongMaterial({ map: texture });
         globe = new THREE.Mesh(geometry, material);
         scene.add(globe);
